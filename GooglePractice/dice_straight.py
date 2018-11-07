@@ -78,23 +78,42 @@ class dice_tree:
             self.associated_dice = associated_dice
             self.face = my_face
     
-    def __init__(self, root_val: int, face_dice_dict: dict, dice_face_dict: dict) -> None:
-        self.root = dice_tree.dtnode(root_val, face_dice_dict[root_val])
-        self.largest_val = root_val
+    def __init__(self, face_dice_dict: dict, dice_face_dict: dict) -> None:
+        self.root = None
+        self.face_dice_dict = face_dice_dict    # {face_value: (dice_id, possessing, this, face, value)}
+        self.dice_face_dict = dice_face_dict    # {dice_id:    (face, values, on, this, dice_id)
+        
     
-    def add_dice(self, face_value: tuple) -> bool:
-        def place_into_tree(face_value, associated_dice: tuple) -> bool:
-            pass
+    def add_from_face_range(self, least_face:int, greatest_face:int)->int:
+        """Depth-first search for the longest viable dice-chain that represents a continuous
+        sequence-set of dice that would allow us to represent as many of the face values on the
+        range of least_face <= x <= greatest_face as possible.
         
-        added = False
-        dice_stack = [self.root]
+        Given face values on the range of least_face < x < greatest_face, we build out a depth first
+        search of dice-chains which could be used to as a continuous sequence of dice, with each
+        discrete dice element being used only once in a sequence, that would allow us to represent
+        as many face values between least_face and greatest_face, inclusively, as possible.
         
-        while len(dice_stack)>0:
-            cur_node = dice_stack.pop()
-            for dice in cur_node.associated_dice:
-                face_list =
+        ASSUMPTIONS:
         
-        return added
+        ::
+            
+            Note that it is assumed that the caller has already verified that there is a continuous
+            range of face values, in the current test case, between least_face and greatest_face.
+        
+        :param least_face:
+        an int representing the smallest face value in the straight being checked
+        
+        :param greatest_face:
+        an int representing the largest face value in the straight being checked
+        
+        :return:
+            an int representing the longest dice_chain sequence possible
+        """
+        unique_sequence_list = list()
+        
+        
+
 
 def find_straight_end(starting_index: int, left_bound: int, check_point: int, right_bound: int,
                       face_dIdx_pairs: tuple, dice_list: list) -> tuple:
