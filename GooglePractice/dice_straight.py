@@ -1,118 +1,155 @@
-# Problem
-# You have a special set of N six-sided dice, each of which has six different positive integers on
-# its faces. Different dice may have different numberings.
-#
-# You want to arrange some or all of the dice in a row such that the faces on top form a straight
-# (that is, they show consecutive integers). For each die, you can choose which face is on top.
-#
-# How long is the longest straight that can be formed in this way?
-#
-# Input
-# The first line of the input gives the number of test cases, T. T test cases follow. Each test
-# case begins with one line with N, the number of dice. Then, N more lines follow; each of them has
-# six positive integers Dij. The j-th number on the i-th of these lines gives the number on the
-# j-th face of the i-th die.
-#
-# Output
-# For each test case, output one line containing Case #x: y, where x is the test case number
-# (starting from 1) and y is the length of the longest straight that can be formed.
-#
-# Limits
-# 1 ≤ T ≤ 100.
-# 1 ≤ Dij ≤ 106 for all i, j.
-#
-# Small dataset
-# 1 ≤ N ≤ 100.
-#
-# Large dataset
-# 1 ≤ N ≤ 50000.
-#
-# The sum of N across all test cases ≤ 200000.
-#
-# Sample
-#
-# Input
-#
-# Output
-#
-# 3
-# 4
-# 4 8 15 16 23 42
-# 8 6 7 5 30 9
-# 1 2 3 4 55 6
-# 2 10 18 36 54 86
-# 2
-# 1 2 3 4 5 6
-# 60 50 40 30 20 10
-# 3
-# 1 2 3 4 5 6
-# 1 2 3 4 5 6
-# 1 4 2 6 5 3
-#
-# Case #1: 4
-# Case #2: 1
-# Case #3: 3
-#
-# In sample case #1, a straight of length 4 can be formed by taking the 2 from the fourth die, the
-# 3 from the third die, the 4 from the first die, and the 5 from the second die.
-#
-# In sample case #2, there is no way to form a straight larger than the trivial straight of
-# length 1.
-#
-# In sample case #3, you can take a 1 from one die, a 2 from another, and a 3 from the remaining
-# unused die. Notice that this case demonstrates that there can be multiple dice with the same set
-# of values on their faces.
+"""
+    Problem
+    You have a special set of N six-sided dice, each of which has six different positive integers on
+    its faces. Different dice may have different numberings.
+
+    You want to arrange some or all of the dice in a row such that the faces on top form a straight
+    (that is, they show consecutive integers). For each die, you can choose which face is on top.
+
+    How long is the longest straight that can be formed in this way?
+
+    Input
+    The first line of the input gives the number of test cases, T. T test cases follow. Each test
+    case begins with one line with N, the number of dice. Then, N more lines follow; each of them has
+    six positive integers Dij. The j-th number on the i-th of these lines gives the number on the
+    j-th face of the i-th die.
+
+    Output
+    For each test case, output one line containing Case #x: y, where x is the test case number
+    (starting from 1) and y is the length of the longest straight that can be formed.
+
+    Limits
+    1 ≤ T ≤ 100.
+    1 ≤ Dij ≤ 106 for all i, j.
+
+    Small dataset
+    1 ≤ N ≤ 100.
+
+    Large dataset
+    1 ≤ N ≤ 50000.
+
+    The sum of N across all test cases ≤ 200000.
+
+    Sample
+
+    Input
+
+    Output
+
+    3
+    4
+    4 8 15 16 23 42
+    8 6 7 5 30 9
+    1 2 3 4 55 6
+    2 10 18 36 54 86
+    2
+    1 2 3 4 5 6
+    60 50 40 30 20 10
+    3
+    1 2 3 4 5 6
+    1 2 3 4 5 6
+    1 4 2 6 5 3
+
+    Case #1: 4
+    Case #2: 1
+    Case #3: 3
+
+    In sample case #1, a straight of length 4 can be formed by taking the 2 from the fourth die, the
+    3 from the third die, the 4 from the first die, and the 5 from the second die.
+
+    In sample case #2, there is no way to form a straight larger than the trivial straight of
+    length 1.
+
+    In sample case #3, you can take a 1 from one die, a 2 from another, and a 3 from the remaining
+    unused die. Notice that this case demonstrates that there can be multiple dice with the same set
+    of values on their faces.
+"""
 
 import concurrent.futures as cf
 import os
-from functools import reduce
 
 class dice_tree:
     class dtnode:
+        """ This class will represent a branching tree structure that tracks viable dice-chains representing unique
+        sequences discrete dice selected for the permutation that yields the longest valid sequence.
         """
-        This class will represent a branching tree structure that tracks all of the possible
-        """
-        
-        def __init__(self, my_face: int, associated_dice: tuple) -> None:
+
+        def __init__(self, my_face: int, associated_dice_ids: list) -> None:
+            """
+            Because each node represents a face value in sequence with other face values, and the viable dice_id's that
+            may yield that face value, we need a way to encapsulate that data for easy manipulation in a changing tree
+            structure.
+            :param my_face: an int representing the face value associated with this node. This takes on significance in
+            the context of each node being a unique representation of a given face value for the permutation of
+            preceding face values already part of a given sequence.
+
+            :param associated_dice_ids: a list of int values where each value maps to a specific dice with a particular
+            set of values on it's 6 faces. This list shall represent a subset of all dice in the test case that posses
+            a side with a face value that matches my_face. The reason it will be a subset of all possible dice is because
+            the list may change according to what dice are used to produce the face values that have already been used
+            in this particular permutation of the sequence.
+            """
             # list of index values for where to find all dice that have a face equal to my_face
-            self.associated_dice = associated_dice
+            self.associated_dice_ids = associated_dice_ids
             self.face = my_face
-    
+            self.child_nodes = None
+
     def __init__(self, face_dice_dict: dict, dice_face_dict: dict) -> None:
         self.root = None
-        self.face_dice_dict = face_dice_dict    # {face_value: (dice_id, possessing, this, face, value)}
-        self.dice_face_dict = dice_face_dict    # {dice_id:    (face, values, on, this, dice_id)
+        self.face_dice_dict = face_dice_dict  # example {face_value: (dice_id, possessing, this, face, value)}
+        self.dice_face_dict = dice_face_dict  # example {dice_id:    (face, values, on, this, dice_id)
+
+    def build_tree_on_range(self, first_face: int, last_face: int):
+        """Given a starting face value, and an ending face value, begin a new tree (clearing any previous tree data)
+        that will give, as it's result, the longest sequence of dice that can be built on the range of:
+
+        first_face <= x <= last_face
+
+        :param first_face:
+        :param last_face:
+        :return:
+        """
+        if self.root:
+            self.clear_sub_tree(self.root)
+        self.root = dice_tree.dtnode(first_face, self.face_dice_dict[first_face])
+        self.root.child_nodes = []
         
-    
-    def add_from_face_range(self, least_face:int, greatest_face:int)->int:
+
+    def clear_sub_tree(self, target: dtnode):
+        target_stack = [target]
+        while len(target_stack) > 0:
+            curr = target_stack.pop()
+            if curr.child_nodes:
+                target_stack.extend(curr.child_nodes)
+            del curr
+
+    def add_face_range(self, least_face: int, greatest_face: int) -> int:
         """Depth-first search for the longest viable dice-chain that represents a continuous
         sequence-set of dice that would allow us to represent as many of the face values on the
         range of least_face <= x <= greatest_face as possible.
-        
+
         Given face values on the range of least_face < x < greatest_face, we build out a depth first
         search of dice-chains which could be used to as a continuous sequence of dice, with each
         discrete dice element being used only once in a sequence, that would allow us to represent
         as many face values between least_face and greatest_face, inclusively, as possible.
-        
+
         ASSUMPTIONS:
-        
+
         ::
-            
+
             Note that it is assumed that the caller has already verified that there is a continuous
             range of face values, in the current test case, between least_face and greatest_face.
-        
+
         :param least_face:
         an int representing the smallest face value in the straight being checked
-        
+
         :param greatest_face:
         an int representing the largest face value in the straight being checked
-        
+
         :return:
             an int representing the longest dice_chain sequence possible
         """
         unique_sequence_list = list()
-        
-        
 
 
 def find_straight_end(starting_index: int, left_bound: int, check_point: int, right_bound: int,
@@ -149,9 +186,8 @@ def find_straight_end(starting_index: int, left_bound: int, check_point: int, ri
     :return:
         returns the index positions of the first and last elements in the current straight
     """
-    while -1<left_bound<check_point<right_bound<len(face_dIdx_pairs):
-        if face_dIdx_pairs[check_point][0]-face_dIdx_pairs[left_bound][0]==check_point-left_bound\
-                and:
+    while -1 < left_bound < check_point < right_bound < len(face_dIdx_pairs):
+        if face_dIdx_pairs[check_point][0] - face_dIdx_pairs[left_bound][0] == check_point - left_bound:
             # check_point indexes to a valid member of the current straight, so the end must be to
             # the right still
             left_bound = check_point
@@ -159,13 +195,13 @@ def find_straight_end(starting_index: int, left_bound: int, check_point: int, ri
             # check_point indexes to an invalid member for the current straight, so we need to look
             # to the left of check_point
             right_bound = check_point
-        check_point = (left_bound+right_bound)//2
-    
+        check_point = (left_bound + right_bound) // 2
+
     return starting_index, right_bound
-    pass
+
 
 def single_case_solution(dice_list: list, case_num: int) -> tuple:
-    """
+    """solve for a single case per process
 
     :param dice_list: a list of lists, where each sublist represents the faces of each descrete dice
     used in this test case.
@@ -173,19 +209,30 @@ def single_case_solution(dice_list: list, case_num: int) -> tuple:
     for us to parallel this functionality but not lose track of what the results mean.
     :return:
     """
-    dice_face_dict = {k:tuple(v) for k,v in enumerate(dice_list)}
+    dice_face_dict = {k: tuple(v) for k, v in enumerate(dice_list)}
     longest_straight = 1
-    dice_to_face_map = dict()
+    face_dice_dict = dict()
     # building the set of unique dice faces for creating a straight, while also retaining the
     # mapping of which dice have a each face.
     for dice_idx, dice_face_tuple in dice_face_dict.items():
         for face_key in dice_face_tuple:
-            if face_key not in dice_to_face_map:
-                dice_to_face_map[face_key] = []
-            dice_to_face_map[face_key].append(dice_idx)
-    
-    
+            if face_key not in face_dice_dict:
+                face_dice_dict[face_key] = []
+            face_dice_dict[face_key].append(dice_idx)
+    sorted_face_list = list(face_dice_dict.keys()).sort()
+    strt = 0
+    straights_list = []
+    while strt < len(sorted_face_list):
+        begin, end = find_straight_end(strt, strt, (strt+len(sorted_face_list))//2, len(sorted_face_list))
+        strt = end+1
+        straights_list.append((begin, end))
+    perrmutation_tree = dice_tree(face_dice_dict,dice_face_dict)
+    # sort straight_list into descending order according to longest run of continuous face values.
+    straights_list.sort(key=lambda tpl: tpl[1]-tpl[0], reverse=True)
+    for straight in straights_list:
+        perrmutation_tree.build_tree_on_range(straight[0], straight[1])
     return case_num, longest_straight
+
 
 def main():
     with open("dice_straight_sample.txt", "r+") as f:
@@ -197,17 +244,17 @@ def main():
     # the first line of input file should be number of test cases
     # test_num = int(input())
     max_workers = os.cpu_count()
-    max_workers = int(max_workers*.9)
+    max_workers = int(max_workers * .9)
     with cf.ProcessPoolExecutor(max_workers=max_workers) as ppe:
         ftrs = []
-        for case in range(1, test_num+1):
+        for case in range(1, test_num + 1):
             dice_count = int(input_seq.pop())  # initial simple testing
             # getting the number of dice in the current test case
             dice_count = int(input())
             dice_list = [[int(s) for s in input_seq.pop().split(" ")].sort()
                          # initial simple testing
                          for d_count in range(dice_count)]  # initial simple testing
-            
+
             # dice_list = [[int(s) for s in input().split(" ")].sort() for d_count in range(
             # dice_count)]
             ftrs.append(ppe.submit(single_case_solution, dice_list, case))
@@ -215,5 +262,6 @@ def main():
             # print(output_string_template.format(ftr.result()))
             print(ftr.result())
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     main()
