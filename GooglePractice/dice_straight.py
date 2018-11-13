@@ -10,7 +10,8 @@
 
     Input
     The first line of the input gives the number of test cases, T. T test cases follow. Each test
-    case begins with one line with N, the number of dice. Then, N more lines follow; each of them has
+    case begins with one line with N, the number of dice. Then, N more lines follow; each of them
+    has
     six positive integers Dij. The j-th number on the i-th of these lines gives the number on the
     j-th face of the i-th die.
 
@@ -66,106 +67,186 @@
 """
 
 import concurrent.futures as cf
+import itertools
 import os
+import time
+import json
 
-class dice_tree:
-    class dtnode:
-        """ This class will represent a branching tree structure that tracks viable dice-chains representing unique
-        sequences discrete dice selected for the permutation that yields the longest valid sequence.
+class sequence_builder:
+    def __init__(self, d2f: dict, f2d: dict) -> None:
+        """an object that handles the task of searching for the longest sequence of discrete dice
+        that
+        can fit on a given interval.
+
+        :param d2f: a dict mapping unique dice id numbers to their associated face values
+        :param f2d: a dict mapping each face value in the union of all face values to the dice which
+        posses a face of that value.
         """
-
-        def __init__(self, my_face: int, associated_dice_ids: list) -> None:
-            """
-            Because each node represents a face value in sequence with other face values, and the viable dice_id's that
-            may yield that face value, we need a way to encapsulate that data for easy manipulation in a changing tree
-            structure.
-            :param my_face: an int representing the face value associated with this node. This takes on significance in
-            the context of each node being a unique representation of a given face value for the permutation of
-            preceding face values already part of a given sequence.
-
-            :param associated_dice_ids: a list of int values where each value maps to a specific dice with a particular
-            set of values on it's 6 faces. This list shall represent a subset of all dice in the test case that posses
-            a side with a face value that matches my_face. The reason it will be a subset of all possible dice is because
-            the list may change according to what dice are used to produce the face values that have already been used
-            in this particular permutation of the sequence.
-            """
-            # list of index values for where to find all dice that have a face equal to my_face
-            self.associated_dice_ids = associated_dice_ids
-            self.face = my_face
-            self.child_nodes = None
-
-    def __init__(self, face_dice_dict: dict, dice_face_dict: dict) -> None:
-        self.root = None
-        self.face_dice_dict = face_dice_dict  # example {face_value: (dice_id, possessing, this, face, value)}
-        self.dice_face_dict = dice_face_dict  # example {dice_id:    (face, values, on, this, dice_id)
-
-    def build_tree_on_range(self, first_face: int, last_face: int):
-        """Given a starting face value, and an ending face value, begin a new tree (clearing any previous tree data)
-        that will give, as it's result, the longest sequence of dice that can be built on the range of:
-
-        first_face <= x <= last_face
-
-        :param first_face:
-        :param last_face:
-        :return:
-        """
-        if self.root:
-            self.clear_sub_tree(self.root)
-        self.root = dice_tree.dtnode(first_face, self.face_dice_dict[first_face])
-        self.root.child_nodes = []
         
-
-    def clear_sub_tree(self, target: dtnode):
-        target_stack = [target]
-        while len(target_stack) > 0:
-            curr = target_stack.pop()
-            if curr.child_nodes:
-                target_stack.extend(curr.child_nodes)
-            del curr
-
-    def add_face_range(self, least_face: int, greatest_face: int) -> int:
-        """Depth-first search for the longest viable dice-chain that represents a continuous
-        sequence-set of dice that would allow us to represent as many of the face values on the
-        range of least_face <= x <= greatest_face as possible.
-
-        Given face values on the range of least_face < x < greatest_face, we build out a depth first
-        search of dice-chains which could be used to as a continuous sequence of dice, with each
-        discrete dice element being used only once in a sequence, that would allow us to represent
-        as many face values between least_face and greatest_face, inclusively, as possible.
-
-        ASSUMPTIONS:
-
-        ::
-
-            Note that it is assumed that the caller has already verified that there is a continuous
-            range of face values, in the current test case, between least_face and greatest_face.
-
-        :param least_face:
-        an int representing the smallest face value in the straight being checked
-
-        :param greatest_face:
-        an int representing the largest face value in the straight being checked
-
-        :return:
-            an int representing the longest dice_chain sequence possible
+        # the key structure for this dict should be a tuple: (face_val, dice_id)
+        self.d2f = d2f
+        self.f2d = f2d
+        self.longest = 0
+    
+    def new_sequence(self, start_face: int, end_face: int):
         """
-        unique_sequence_list = list()
 
+        :param start_face: An int representing the face value to start at (not an index position)
+        :param end_face: An in representing the face value to end at (not an index position)
+        :return:
+        The longest sequence of dice that could be found.
+        """
+        
+        if start_face+1<end_face:
+            # initializing the first element-tier of the sequence dict
+            self.longest = max(self._alt_build_sequence(start_face, end_face),
+                               # self._build_sequence(set(), 0, start_face, end_face),
+                               self.longest)
+        return self.longest
+    
+    def face_gen(self, start:int, end:int):
+        for face in range(start,end):
+            yield face, self.f2d[face], len(self.f2d[face])
+        
+    def single_faces(self, sorted_face_dice_list:list):
+        for face,dice,d_len in sorted_face_dice_list:
+            if d_len==1:
+                yield face,dice[0]
+            else:
+                break
+    def other_faces(self, head:int, sorted_face_dice_list:list):
+        for face,dice,d_len in sorted_face_dice_list[head:]:
+            yield face,dice[0]
+        
+        
+    def _alt_build_sequence(self, start: int, end: int) -> int:
+        """
+        Steps for placement order:
+          First: Fill all face positions that have only 1 dice that can satisfy them.
 
-def find_straight_end(starting_index: int, left_bound: int, check_point: int, right_bound: int,
-                      face_dIdx_pairs: tuple, dice_list: list) -> tuple:
+          Second: Of the remaining dice, place all those that appear only 1 time within
+          the range of start<=x<=end
+          
+                Note: The dice sets for the first and second steps are disjoint
+
+          Third: Fill all remaining positions in the range from a priority que of remaining dice.
+              This priority que shall be ordered according to the following, in order of importance:
+                  1. ascending order for # of occurrences within the range.
+                  2. ascending order for greatest face on the dice
+          
+          Fourth: starting at the beginning of the sequence, we attempt to fill the gaps in the
+
+        :param start:
+        :param end:
+        :return:
+        """
+        if end <= start+1:
+            return 1
+        # faces_by_options will be a list of 3-tuples in the form of:
+        #   (face_value, list_of_dice_ids, len(list_of_dice_ids))
+        faces_by_options = sorted(((face, dice,d_len) for face, dice, d_len in self.face_gen(start,end)),
+                                  key=lambda face, dice,d_len: d_len)
+        # first_faces is a list of tuples representing all face values that only have a single dice
+        # to represent them.
+        # These tuples will be in the form of (face_value, dice_id)
+        first_faces = tuple((face,dice) for face,dice in self.single_faces(faces_by_options))
+        if len(first_faces) > 0:
+            other_faces = self.other_faces(len(first_faces),faces_by_options)
+        else:
+            other_faces = faces_by_options
+            first_faces = None
+        
+        # dice_set is a set of tuples in the form of: (dice_id,,count_of_usable_faces)
+        dice_set = set(d for faces,d_ids in faces_by_options for d in d_ids)
+        reset_tuple = tuple(dice_set)
+        # we'll use this value later to see if we have our optimal sequence yet
+        max_seq_len = len(dice_set)
+        len_based_dice_map = dict()
+        for d in reset_tuple:
+            l = sorted([f for f in self.d2f[d] if start<=f<=end], reverse=True)
+            if len(l) not in len_based_dice_map:
+                len_based_dice_map[len(l)] = dict()
+            len_based_dice_map[len(l)][d] = l
+        
+        final_sequence = [None]*(end-start)
+        
+        # now we finally start building the sequence
+        # first by adding those face values that only appear on a single dice
+        if first_faces:
+            for face,dice_id in first_faces:
+                assert(face >= start), "Failed assert when assigning dice_ids for first_face\n\tface < start"
+                assert(final_sequence[face-start] is None),"Failed assert when assigning dice_ids for first_face\n\tfinal_sequence[face-start] wasn't None"
+                if dice_id in dice_set:
+                    final_sequence[face-start] = dice_id
+                    dice_set.remove(dice_id)
+        
+        # now we place all of the dice that appear only one time into the sequence.
+        for length in len_based_dice_map:
+            for dice_id in len_based_dice_map[length]:
+                face = len_based_dice_map[length][dice_id].pop()
+                while final_sequence[face-start] is not None:
+                    face = len_based_dice_map[length][dice_id].pop()
+                    
+                assert(face >= start), "Failed assert when assigning dice_ids for len_based_dice_map\n\tv[0] < start"
+                assert(final_sequence[face-start] is None),"Failed assert when assigning dice_ids for len_based_dice_map\n\tfinal_sequence[v[0]-start] wasn't None"
+                
+                if dice_id in dice_set:
+                    final_sequence[face-start] = dice_id
+                    dice_set.remove(dice_id)
+        
+        
+        
+        nons = [pos for pos in range(len(final_sequence)) if final_sequence[pos] is None]
+        return max((nons[i+1]-nons[i] for i in range(len(nons)-1)))
+    
+    def _build_sequence(self, d_sequence: set, depth: int, target_face: int, end: int) -> int:
+        """This function will perform a depth-first-search for a dice sequence that can span the
+        entire range from start to end, stopping should such a sequence be found, else it returns
+        the longest sequence encountered during the search.
+
+        :param d_sequence: A set of dice id's that represents the current sequence being explored
+        :param depth: an int that tracks how deep we are able to get in this sequence before running
+                      out of dice, or reaching the end of the specified face value range.
+        :param target_face: An int representing which face in the sequence we are attempting to
+                            match dice to.
+        :param start: An int representing the
+        :param end:
+        :return:
+        """
+        if target_face+1<=end:
+            next_dice = set(self.f2d[target_face])-d_sequence
+            if len(next_dice)>0:
+                with cf.ProcessPoolExecutor(int(os.cpu_count()*.9)) as ppe:
+                    lengths = []
+                    # ftrs = []
+                    for dice in next_dice:
+                        d_sequence.add(dice)
+                        # ftrs.append(ppe.submit(self._build_sequence,d_sequence, depth+1,
+                        # target_face+1,
+                        #                        f2d,d2f,start,end))
+                        lengths.append(
+                            self._build_sequence(d_sequence, depth+1, target_face+1, end))
+                        d_sequence.remove(dice)
+                depth = max(lengths)
+        return depth
+
+def find_straight_end(starting_index: int,
+                      check_point: int,
+                      right_bound: int,
+                      sorted_face_list: list,
+                      case_num: int = -1) -> tuple:
     """Binary search for the end of the current straight, which starts at left_bound.
 
     It is assumed that key_list is already sorted in ascending order, so that we may use the
-    value saved at face_dIdx_pairs[left_bound][0] as an offset value for doing a binary search for
-    the last index in the face_dIdx_pairs where
+    value saved at sorted_face_list[left_bound][0] as an offset value for doing a binary search for
+    the last index in the sorted_face_list where
 
     ::
 
-        face_dIdx_pairs[check_point][0]-face_dIdx_pairs[left_bound][0] == check_point-left_bound
+        sorted_face_list[check_point][0]-sorted_face_list[left_bound][0] == check_point-left_bound
 
     :param starting_index: an int representing the index position for the first element in the
-    current straight as it resides within the face_dIdx_pairs.
+    current straight as it resides within the sorted_face_list.
 
     :param left_bound: an int representing the index position of a valid member element of the
     current straight that's less than check_point, and greater than or equal to starting_index.
@@ -175,19 +256,16 @@ def find_straight_end(starting_index: int, left_bound: int, check_point: int, ri
 
     :param right_bound: an int representing a known maximum limit for where this straight may end.
 
-    :param face_dIdx_pairs: an ordered tuple of int/list pairings. Where the int values represent
-    a set of discrete face values that can be found across all dice. Associated with each face
-    value
-    is a list of all the dice which have a face that matches that value.
-
-    :param dice_list: a list of lists where each individual sub-list represents the face values of
-    a discrete dice belonging to the current test case.
+    :param sorted_face_list: a list of all the unique face values from all dice in the current test
+    case, sorted in ascending order.
 
     :return:
-        returns the index positions of the first and last elements in the current straight
+        returns the index positions of the first and last sequence in the current straight
     """
-    while -1 < left_bound < check_point < right_bound < len(face_dIdx_pairs):
-        if face_dIdx_pairs[check_point][0] - face_dIdx_pairs[left_bound][0] == check_point - left_bound:
+    left_bound = starting_index
+    # while -1<left_bound<check_point<right_bound<len(sorted_face_list):
+    while left_bound<check_point<right_bound<len(sorted_face_list):
+        if sorted_face_list[check_point]-sorted_face_list[left_bound]==check_point-left_bound:
             # check_point indexes to a valid member of the current straight, so the end must be to
             # the right still
             left_bound = check_point
@@ -195,10 +273,17 @@ def find_straight_end(starting_index: int, left_bound: int, check_point: int, ri
             # check_point indexes to an invalid member for the current straight, so we need to look
             # to the left of check_point
             right_bound = check_point
-        check_point = (left_bound + right_bound) // 2
-
-    return starting_index, right_bound
-
+        check_point = (left_bound+right_bound)//2
+    
+    check_point = right_bound\
+        if right_bound==check_point+1\
+           and sorted_face_list[right_bound]==sorted_face_list[check_point]+1\
+        else check_point
+    return sorted_face_list[starting_index],\
+           (sorted_face_list[check_point]
+            if check_point-starting_index==sorted_face_list[check_point]-sorted_face_list[
+               starting_index]
+            else sorted_face_list[starting_index])
 
 def single_case_solution(dice_list: list, case_num: int) -> tuple:
     """solve for a single case per process
@@ -209,30 +294,36 @@ def single_case_solution(dice_list: list, case_num: int) -> tuple:
     for us to parallel this functionality but not lose track of what the results mean.
     :return:
     """
-    dice_face_dict = {k: tuple(v) for k, v in enumerate(dice_list)}
+    dice_list = [tuple(int(s) for s in line.split(" ")) for line in dice_list]
+    d2f = {k:v for k, v in enumerate(dice_list)}
     longest_straight = 1
-    face_dice_dict = dict()
+    f2d = dict()
     # building the set of unique dice faces for creating a straight, while also retaining the
     # mapping of which dice have a each face.
-    for dice_idx, dice_face_tuple in dice_face_dict.items():
-        for face_key in dice_face_tuple:
-            if face_key not in face_dice_dict:
-                face_dice_dict[face_key] = []
-            face_dice_dict[face_key].append(dice_idx)
-    sorted_face_list = list(face_dice_dict.keys()).sort()
+    for key in d2f:
+        for face in d2f[key]:
+            if face not in f2d:
+                f2d[face] = list()
+            f2d[face].append(key)
+    
+    sorted_face_list = sorted(list(f2d.keys()))
     strt = 0
     straights_list = []
-    while strt < len(sorted_face_list):
-        begin, end = find_straight_end(strt, strt, (strt+len(sorted_face_list))//2, len(sorted_face_list))
-        strt = end+1
-        straights_list.append((begin, end))
-    perrmutation_tree = dice_tree(face_dice_dict,dice_face_dict)
-    # sort straight_list into descending order according to longest run of continuous face values.
-    straights_list.sort(key=lambda tpl: tpl[1]-tpl[0], reverse=True)
-    for straight in straights_list:
-        perrmutation_tree.build_tree_on_range(straight[0], straight[1])
-    return case_num, longest_straight
-
+    last_idx = len(sorted_face_list)-1
+    while strt<len(sorted_face_list):
+        start_face, end_face = find_straight_end(starting_index=strt,
+                                                 check_point=(strt+last_idx)//2,
+                                                 right_bound=last_idx,
+                                                 sorted_face_list=sorted_face_list,
+                                                 case_num=case_num)
+        strt = end_face+1
+        straights_list.append((start_face, end_face))
+    # print("for case {}, we have a sorted list of:\n\t{}\n and straights_list has:\n\t {
+    # }\n".format(case_num, sorted_face_list,straights_list))
+    seq = sequence_builder(d2f, f2d)
+    for start, end in straights_list:
+        seq.new_sequence(start, end)
+    return case_num, seq.longest
 
 def main():
     with open("dice_straight_sample.txt", "r+") as f:
@@ -244,24 +335,32 @@ def main():
     # the first line of input file should be number of test cases
     # test_num = int(input())
     max_workers = os.cpu_count()
-    max_workers = int(max_workers * .9)
+    max_workers = int(max_workers*.9)
     with cf.ProcessPoolExecutor(max_workers=max_workers) as ppe:
         ftrs = []
-        for case in range(1, test_num + 1):
+        results = []
+        for case in range(1, test_num+1):
             dice_count = int(input_seq.pop())  # initial simple testing
             # getting the number of dice in the current test case
-            dice_count = int(input())
-            dice_list = [[int(s) for s in input_seq.pop().split(" ")].sort()
-                         # initial simple testing
-                         for d_count in range(dice_count)]  # initial simple testing
+            # dice_count = int(input())
+            # dice_list = [set(sorted([int(s) for s in input_seq.pop().split(" ")])) for d_count
+            # in range(dice_count)]  # initial simple testing
+            input_list = [input_seq.pop() for d_count in range(dice_count)]
+            # dice_list = [line for line in input_list]a
+            results.append(single_case_solution(input_list,case))
+            # ftrs.append(ppe.submit(single_case_solution, input_list, case))
+        time.sleep(2)
+        for cas, res in results:
+            print(output_string_template.format(cas, res))
+        # for ftr in cf.as_completed(ftrs):
+        #     cas, res = ftr.result()
+        #     print(output_string_template.format(cas, res))
+            # results.append(ftr.result())
+        # results.sort(key=lambda tpl: tpl[0])
+        # for case_num,res in results:
+        #
+        #     print(output_string_template.format(case_num,res))
+        # print(ftr.result())
 
-            # dice_list = [[int(s) for s in input().split(" ")].sort() for d_count in range(
-            # dice_count)]
-            ftrs.append(ppe.submit(single_case_solution, dice_list, case))
-        for ftr in cf.as_completed(ftrs):
-            # print(output_string_template.format(ftr.result()))
-            print(ftr.result())
-
-
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
